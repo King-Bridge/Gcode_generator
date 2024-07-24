@@ -1,7 +1,7 @@
 ;layer_height = 0.4
-line_width = 0.4
-layer_count = 60
-mesh = only wall
+;line_width = 0.4
+;layer_count = 60
+;mesh = only wall
 G21 ;start of the code
 G1 Z15 F300
 G28 X0 Y0 ;Home
