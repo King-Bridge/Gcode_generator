@@ -19,6 +19,7 @@ def write_header_lines(file, layer_height, line_width, layer_count, mesh, start_
             "\n",
             f"\nG0 F3600 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} ;Go to start position",
             "\nM7",
+            "\nG4 P150",
             "\n\n"
         ]
         
@@ -36,11 +37,11 @@ def writ_finish_lines(file):
         ]
         f.writelines(finish_lines)
         
-def write_G1_line(delta_x, delta_y, xy, lines, pause=True):
+def write_G1_line(delta_x, delta_y, xy, lines, pause=False):
     xy += [delta_x, delta_y]
     lines.append(f"\nG1 X{xy[0]:.3f} Y{xy[1]:.3f}")
     if pause:
-        lines.append(f"\nG4 P30")
+        lines.append(f"\nG4 P5")
     # print(xy)
     return xy, lines
 
@@ -48,61 +49,161 @@ def write_init_layer(xy, z, lines):
     lines.append(f"\nG1 X{xy[0]:.3f} Y{xy[1]:.3f} Z{z:.3f}")
     return lines    
 
-def draw_layer_out_in(file, xy1, xy3, z, w):
+def draw_layer_out_in(file, xy1, xy3, z, w, start):
     
-    xy = np.array([xy1[0] + w/2, xy1[1] + w/2])
-    a = xy3[0] - xy1[0] - w
-    b = xy3[1] - xy1[1] - w
+    if start == 'xy1':
+        xy = np.array([xy1[0] + w/2, xy1[1] + w/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w), int(b/w)])+1):
+            if (i%2==0):
+                xy, lines = write_G1_line(a-w*i, 0, xy, lines)
+                xy, lines = write_G1_line(0, b-w*i, xy, lines)
+            else:
+                xy, lines = write_G1_line(-a+w*(i-1), 0, xy, lines)
+                xy, lines = write_G1_line(0, -b+w*(i-1), xy, lines, pause=False)
+                xy, lines = write_G1_line(w, w, xy, lines, pause=False)
     
-    lines = []
-    lines = write_init_layer(xy, z, lines)
-    for i in range (np.min([int(a/w), int(b/w)])+1):
-        if (i%2==0):
-            xy, lines = write_G1_line(a-w*i, 0, xy, lines)
-            xy, lines = write_G1_line(0, b-w*i, xy, lines)
-        else:
-            xy, lines = write_G1_line(-a+w*(i-1), 0, xy, lines)
-            xy, lines = write_G1_line(0, -b+w*(i-1), xy, lines, pause=False)
-            xy, lines = write_G1_line(w, w, xy, lines, pause=False)
+    elif start == 'xy3':
+        xy = np.array([xy3[0] - w/2, xy3[1] - w/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w), int(b/w)])+1):
+            if (i%2==0):
+                xy, lines = write_G1_line(-a+w*i, 0, xy, lines)
+                xy, lines = write_G1_line(0, -b+w*i, xy, lines)
+            else:
+                xy, lines = write_G1_line(a-w*(i-1), 0, xy, lines)
+                xy, lines = write_G1_line(0, b-w*(i-1), xy, lines, pause=False)
+                xy, lines = write_G1_line(-w, -w, xy, lines, pause=False)
+                
+    elif start == 'side1':
+        xy = np.array([xy1[0] + w/2, (xy1[1] + xy3[1])/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w/2), int(b/w/2)])+1):
+            xy, lines = write_G1_line(0, -(b-w*i*2)/2, xy, lines)
+            xy, lines = write_G1_line(a-w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, b-w*i*2, xy, lines)
+            xy, lines = write_G1_line(-a+w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, -(b-w*i*2)/2, xy, lines, pause=False)
+            xy, lines = write_G1_line(w, 0, xy, lines, pause=False)
+            
+    elif start == 'side3':
+        xy = np.array([xy3[0] - w/2, (xy1[1] + xy3[1])/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w/2), int(b/w/2)])+1):
+            xy, lines = write_G1_line(0, (b-w*i*2)/2, xy, lines)
+            xy, lines = write_G1_line(-a+w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, -b+w*i*2, xy, lines)
+            xy, lines = write_G1_line(a-w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, (b-w*i*2)/2, xy, lines, pause=False)
+            xy, lines = write_G1_line(-w, 0, xy, lines, pause=False)
+            
+    else:
+        print('Invalid start position')
     
     with open(file, 'a') as f:
         f.writelines(lines)
         
         
-def draw_layer_in_out(file, xy1, xy3, z, w):
+def draw_layer_in_out(file, xy1, xy3, z, w, start):
     
-    xy = np.array([xy1[0] + w/2, xy1[1] + w/2])
-    a = xy3[0] - xy1[0] - w
-    b = xy3[1] - xy1[1] - w
+    if start == 'xy1':
+        xy = np.array([xy1[0] + w/2, xy1[1] + w/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w), int(b/w)])+1):
+            if (i%2==0):
+                xy, lines = write_G1_line(a-w*i, 0, xy, lines)
+                xy, lines = write_G1_line(0, b-w*i, xy, lines)
+            else:
+                xy, lines = write_G1_line(-a+w*(i-1), 0, xy, lines)
+                xy, lines = write_G1_line(0, -b+w*(i-1), xy, lines, pause=False)
+                xy, lines = write_G1_line(w, w, xy, lines, pause=False)
     
-    lines_inverse = []
-    lines_inverse = write_init_layer(xy, z, lines_inverse)
-    for i in range (np.min([int(a/w), int(b/w)])+1):
-        if (i%2==0):
-            xy, lines_inverse = write_G1_line(a-w*i, 0, xy, lines_inverse)
-            xy, lines_inverse = write_G1_line(0, b-w*i, xy, lines_inverse)
-        else:
-            xy, lines_inverse = write_G1_line(-a+w*(i-1), 0, xy, lines_inverse)
-            xy, lines_inverse = write_G1_line(0, -b+w*(i-1), xy, lines_inverse, pause=False)
-            xy, lines_inverse = write_G1_line(w, w, xy, lines_inverse)
+    elif start == 'xy3':
+        xy = np.array([xy3[0] - w/2, xy3[1] - w/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w), int(b/w)])+1):
+            if (i%2==0):
+                xy, lines = write_G1_line(-a+w*i, 0, xy, lines)
+                xy, lines = write_G1_line(0, -b+w*i, xy, lines)
+            else:
+                xy, lines = write_G1_line(a-w*(i-1), 0, xy, lines)
+                xy, lines = write_G1_line(0, b-w*(i-1), xy, lines, pause=False)
+                xy, lines = write_G1_line(-w, -w, xy, lines, pause=False)
+                
+    elif start == 'side1':
+        xy = np.array([xy1[0] + w/2, (xy1[1] + xy3[1])/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w/2), int(b/w/2)])+1):
+            xy, lines = write_G1_line(0, -(b-w*i*2)/2, xy, lines)
+            xy, lines = write_G1_line(a-w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, b-w*i*2, xy, lines)
+            xy, lines = write_G1_line(-a+w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, -(b-w*i*2)/2, xy, lines, pause=False)
+            xy, lines = write_G1_line(w, 0, xy, lines, pause=False)
             
-    lines = []
-    lines = write_init_layer(xy, z, lines)
-    l = len(lines_inverse)
-    for i in range (len(lines_inverse)):
-        if (lines_inverse[i].startswith('G4')):
-            lines.append(lines_inverse[l-i-2])
-            lines.append(lines_inverse[l-i-1])
+    elif start == 'side3':
+        xy = np.array([xy3[0] - w/2, (xy1[1] + xy3[1])/2])
+        a = xy3[0] - xy1[0] - w
+        b = xy3[1] - xy1[1] - w
+        
+        lines = []
+        lines = write_init_layer(xy, z, lines)
+        for i in range (np.min([int(a/w/2), int(b/w/2)])+1):
+            xy, lines = write_G1_line(0, (b-w*i*2)/2, xy, lines)
+            xy, lines = write_G1_line(-a+w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, -b+w*i*2, xy, lines)
+            xy, lines = write_G1_line(a-w*i*2, 0, xy, lines)
+            xy, lines = write_G1_line(0, (b-w*i*2)/2, xy, lines, pause=False)
+            xy, lines = write_G1_line(-w, 0, xy, lines, pause=False)
+            
+    else:
+        print('Invalid start position')
+            
+    lines_write = []
+    lines_write = write_init_layer(xy, z, lines_write)
+    l = len(lines)
+    for i in range (len(lines)):
+        if (lines[i].startswith('G4')):
+            lines_write.append(lines[l-i-2])
+            lines_write.append(lines[l-i-1])
             i += 1
         else:
-            lines.append(lines_inverse[l-i-1])
+            lines_write.append(lines[l-i-1])
             
     with open(file, 'a') as f:
-        f.writelines(lines)
+        f.writelines(lines_write)
         
         
 
-def draw_layer(file, xy1, xy3, z, w, direction):
+def draw_layer(file, xy1, xy3, z, w, direction, start='xy1'):
     """Draw single platform layer by concentrate infill
 
     Args:
@@ -113,17 +214,20 @@ def draw_layer(file, xy1, xy3, z, w, direction):
     """
     
     if direction == 0:
-        draw_layer_out_in(file, xy1, xy3, z, w)
+        draw_layer_out_in(file, xy1, xy3, z, w, start)
     elif direction == 1:
-        draw_layer_in_out(file, xy1, xy3, z, w)
+        draw_layer_in_out(file, xy1, xy3, z, w, start)
+       
+        
         
 def move_to(file, x, y, z):
     lines = [
-        f"\nM9"
-        f"\nG1 Z10.000"
-        f"\nG1 X{x:.3f} Y{y:.3f}"
-        f"\nG1 Z{z:.3f}"
-        f"\nM7"
+        f"\nM9",
+        f"\nG1 Z10.000",
+        f"\nG1 X{x:.3f} Y{y:.3f}",
+        f"\nG1 Z{z:.3f}",
+        f"\nM7",
+        f"\nG4 P150"
     ]
     with open(file, 'a') as f:
         f.writelines(lines)
