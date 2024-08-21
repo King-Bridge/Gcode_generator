@@ -50,8 +50,21 @@ def write_G1_line(delta_x, delta_y, xy, lines, pause=False):
 def write_init_layer(xy, z, lines):
     lines.append(f"\nG1 X{xy[0]:.3f} Y{xy[1]:.3f} Z{z:.3f}")
     return lines    
-
-
+       
+       
+def move_to(file, x, y, z):
+    lines = [
+        f"\nM9",
+        f"\nG1 Z10.000",
+        f"\nG1 X{x:.3f} Y{y:.3f}",
+        f"\nG1 Z{z:.3f}",
+        f"\nM7",
+        f"\nG4 P150"
+    ]
+    with open(file, 'a') as f:
+        f.writelines(lines)
+       
+        
 def polygon_inside_move(pl, w):
     
     sl = np.array([pl[1]-pl[0]])
@@ -94,6 +107,53 @@ def polygon_inside_move(pl, w):
     return pl_new
 
 
+def line_intersection(line1, line2):
+    """
+    求两条直线的交点。
+
+    Args:
+        line1: 定义第一条直线的两个点的列表，[[x1, y1], [x2, y2]]。
+        line2: 定义第二条直线的两个点的列表，[[x3, y3], [x4, y4]]。
+
+    Returns:
+        表示交点的 [x, y] 坐标列表，如果直线平行则返回 None。
+    """
+    # 从直线上点的坐标中提取 x、y 值
+    x1, y1 = line1[0]
+    x2, y2 = line1[1]
+    x3, y3 = line2[0]
+    x4, y4 = line2[1]
+
+    # 计算直线的斜率和 y 轴截距
+    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+
+    # 检查直线是否平行或重合
+    if denominator == 0:
+        return None
+
+    # 计算交点的 x、y 坐标
+    x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
+    y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
+
+    return [x, y]
+
+
+def calculate_side_vector(pl):
+    sv = np.array([pl[1]-pl[0]])
+    for i in range (len(pl)-2):
+        sv = np.vstack((sv, pl[i+2]-pl[i+1]))
+    sv = np.vstack((sv, pl[0]-pl[-1]))
+    return sv
+
+
+def calculate_side_length(pl, sv0):
+    sv = calculate_side_vector(pl)
+    sl = []
+    for i in range (len(sv)):
+        sl.append(np.linalg.norm(sv[i]) * np.sign(np.dot(sv0[i], sv[i])))
+    return sl
+
+
 def draw_layer_out_in(file, pl, z, w, extra_line):
     
     pl = polygon_inside_move(pl, w/2)
@@ -101,37 +161,42 @@ def draw_layer_out_in(file, pl, z, w, extra_line):
     lines = []
     lines = write_init_layer(xy, z, lines)
     
-    sl = np.array([pl[1]-pl[0]])
-    for i in range (len(pl)-2):
-        sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-    sl = np.vstack((sl, pl[0]-pl[-1]))
+    sv0 = calculate_side_vector(pl)
+    sl = calculate_side_length(pl, sv0)
+    sv = calculate_side_vector(pl)
     
-    while (np.min(np.linalg.norm(sl, axis=1)) > w):
-        for i in range (len(pl)):
-            xy, lines = write_G1_line(sl[i][0], sl[i][1], xy, lines)
-            
-        pl = polygon_inside_move(pl, w)
+    while (len(pl)>2):
         xy, lines = write_G1_line(pl[0][0]-xy[0], pl[0][1]-xy[1], xy, lines, pause=False)
         
-        sl = np.array([pl[1]-pl[0]])
-        for i in range (len(pl)-2):
-            sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-        sl = np.vstack((sl, pl[0]-pl[-1]))
-        
-    for i in range (extra_line):
+        sv = calculate_side_vector(pl)
         for i in range (len(pl)):
-            xy, lines = write_G1_line(sl[i][0], sl[i][1], xy, lines)
+            xy, lines = write_G1_line(sv[i][0], sv[i][1], xy, lines)
             
         pl = polygon_inside_move(pl, w)
-        xy, lines = write_G1_line(pl[0][0]-xy[0], pl[0][1]-xy[1], xy, lines, pause=False)
         
-        sl = np.array([pl[1]-pl[0]])
-        for i in range (len(pl)-2):
-            sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-        sl = np.vstack((sl, pl[0]-pl[-1]))
+        while(1):
+            sl = calculate_side_length(pl, sv0)
+            
+            dl = []
+            for i in range (len(sl)):
+                if sl[i] <=0:
+                    dl.append(i)
+                             
+            for i in range (len(dl)):
+                k = dl[len(dl)-i-1]
+                pl[(k+1)%len(pl)] = line_intersection([pl[k-1], pl[k]], [pl[(k+1)%len(pl)], pl[(k+2)%len(pl)]])
+                pl = np.delete(pl, k, axis=0)
+                sv0 = np.delete(sv0, k, axis=0)
+                
+            if (len(dl) == 0) or (len(pl) < 3):
+                break
 
+        
     with open(file, 'a') as f:
         f.writelines(lines)
+    lines = []
+    
+    return pl
         
         
 def draw_layer_in_out(file, pl, z, w, extra_line):
@@ -141,34 +206,35 @@ def draw_layer_in_out(file, pl, z, w, extra_line):
     lines = []
     lines = write_init_layer(xy, z, lines)
     
-    sl = np.array([pl[1]-pl[0]])
-    for i in range (len(pl)-2):
-        sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-    sl = np.vstack((sl, pl[0]-pl[-1]))
+    sv0 = calculate_side_vector(pl)
+    sl = calculate_side_length(pl, sv0)
+    sv = calculate_side_vector(pl)
     
-    while (np.min(np.linalg.norm(sl, axis=1)) > w):
-        for i in range (len(pl)):
-            xy, lines = write_G1_line(sl[i][0], sl[i][1], xy, lines)
-            
-        pl = polygon_inside_move(pl, w)
+    while (len(pl)>2):
         xy, lines = write_G1_line(pl[0][0]-xy[0], pl[0][1]-xy[1], xy, lines, pause=False)
         
-        sl = np.array([pl[1]-pl[0]])
-        for i in range (len(pl)-2):
-            sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-        sl = np.vstack((sl, pl[0]-pl[-1]))
-        
-    for i in range (extra_line):
+        sv = calculate_side_vector(pl)
         for i in range (len(pl)):
-            xy, lines = write_G1_line(sl[i][0], sl[i][1], xy, lines)
+            xy, lines = write_G1_line(sv[i][0], sv[i][1], xy, lines)
             
         pl = polygon_inside_move(pl, w)
-        xy, lines = write_G1_line(pl[0][0]-xy[0], pl[0][1]-xy[1], xy, lines, pause=False)
         
-        sl = np.array([pl[1]-pl[0]])
-        for i in range (len(pl)-2):
-            sl = np.vstack((sl, pl[i+2]-pl[i+1]))
-        sl = np.vstack((sl, pl[0]-pl[-1]))
+        while(1):
+            sl = calculate_side_length(pl, sv0)
+            
+            dl = []
+            for i in range (len(sl)):
+                if sl[i] <=0:
+                    dl.append(i)
+                    
+            for i in range (len(dl)):
+                k = dl[len(dl)-i-1]
+                pl[(k+1)%len(pl)] = line_intersection([pl[k-1], pl[k]], [pl[(k+1)%len(pl)], pl[(k+2)%len(pl)]])
+                pl = np.delete(pl, k, axis=0)
+                sv0 = np.delete(sv0, k, axis=0)
+                
+            if (len(dl) == 0) or (len(pl) < 3):
+                break
             
     lines_write = []
     lines_write = write_init_layer(xy, z, lines_write)
@@ -183,6 +249,8 @@ def draw_layer_in_out(file, pl, z, w, extra_line):
             
     with open(file, 'a') as f:
         f.writelines(lines_write)
+    
+    return pl
         
         
 def draw_layer(file, point_list, z, w, direction, extra_line=0):
@@ -196,19 +264,33 @@ def draw_layer(file, point_list, z, w, direction, extra_line=0):
     """
     
     if direction == 0:
-        draw_layer_out_in(file, point_list, z, w, extra_line)
+        pl = draw_layer_out_in(file, point_list, z, w, extra_line)
     elif direction == 1:
-        draw_layer_in_out(file, point_list, z, w, extra_line)
-       
-             
-def move_to(file, x, y, z):
-    lines = [
-        f"\nM9",
-        f"\nG1 Z10.000",
-        f"\nG1 X{x:.3f} Y{y:.3f}",
-        f"\nG1 Z{z:.3f}",
-        f"\nM7",
-        f"\nG4 P150"
-    ]
-    with open(file, 'a') as f:
-        f.writelines(lines)
+        pl = draw_layer_in_out(file, point_list, z, w, extra_line)
+        
+    return pl
+  
+
+def side_move_inside(pl, ml):
+    
+    pn = len(pl)
+    lines = np.array([])
+        
+    for i in range (pn):
+        v = np.array([pl[(i+1)%pn][1]-pl[i][1],-pl[(i+1)%pn][0]+pl[i][0]])
+        v = v/np.linalg.norm(v)*ml[i]
+        if len(lines)==0:
+            lines = np.array([[[pl[i][0]+v[0],pl[i][1]+v[1]],[pl[(i+1)%pn][0]+v[0],pl[(i+1)%pn][1]+v[1]]]])
+        else:
+            lines = np.vstack((lines, np.array([[[pl[i][0]+v[0],pl[i][1]+v[1]],[pl[(i+1)%pn][0]+v[0],pl[(i+1)%pn][1]+v[1]]]])))
+        
+    pl_new = np.array([])
+    for i in range (pn):
+        if len(pl_new)==0:
+            pl_new = np.array([line_intersection(lines[i],lines[(i+1)%pn])])
+        else:
+            pl_new = np.vstack((pl_new, line_intersection(lines[i],lines[(i+1)%pn])))
+        
+    return pl_new
+
+
